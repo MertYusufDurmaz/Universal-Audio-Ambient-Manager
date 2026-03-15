@@ -1,153 +1,116 @@
-﻿using UnityEngine;
+using System.Collections;
+using UnityEngine;
 
 public class VoiceManager : MonoBehaviour
 {
-    public static VoiceManager Instance; // Singleton
-    private AudioSource audioSource;     // Genel kısa SFX'ler
+    public static VoiceManager Instance { get; private set; }
 
-    // --- AMBIENT ---
+    [Header("Audio Sources (Otomatik Oluşturulur)")]
+    private AudioSource sfxSource;        // Anlık kısa SFX'ler (Kapı, adım, buton)
+    private AudioSource ambientSource;    // Arka plan müziği
+    private AudioSource randomSfxSource;  // Rastgele korku sesleri
+    private AudioSource earthquakeSource; // Deprem
+    private AudioSource flashlightSource; // Glitch gibi uzun sesler
+
     [Header("Ambient / Background Music")]
     public AudioClip ambientClip;
     [Range(0f, 1f)] public float ambientVolume = 0.007f;
-    private AudioSource ambientSource;
 
-    // --- RANDOM HORROR EVENTS (YENİ) ---
     [Header("Random Horror Events")]
     [Tooltip("Buraya fısıltı, gıcırtı, ani sesler ekle")]
     public AudioClip[] randomHorrorClips;
-    [Tooltip("En az kaç saniye sonra ses çıksın?")]
     public float minRandomTime = 15f;
-    [Tooltip("En fazla kaç saniye sonra ses çıksın?")]
     public float maxRandomTime = 45f;
     [Range(0f, 1f)] public float randomHorrorVolume = 0.8f;
 
-    private AudioSource randomSfxSource; // Bu sesler için özel kaynak
-    private float randomEventTimer;
-
-    // --- EARTHQUAKE ---
     [Header("Earthquake Sound")]
     public AudioClip earthquakeSound;
-    [HideInInspector] public AudioSource earthquakeSource;
 
-    // --- FOOTSTEPS ---
     [Header("Footstep Settings")]
     public AudioClip[] footstepSounds;
     public float stepInterval = 0.6f;
     private float stepTimer;
-
-    // --- DOOR / DRAWER / SAFE ---
-    [Header("Door Sounds")]
-    public AudioClip doorOpenSound;
-    public AudioClip doorCloseSound;
-
-    [Header("Drawer Sounds")]
-    public AudioClip drawerOpenSound;
-    public AudioClip drawerCloseSound;
-    public AudioClip bigDrawerOpenSound;
-    public AudioClip bigDrawerCloseSound;
-
-    [Header("Safe Sounds")]
-    public AudioClip safeButtonPress;
-    public AudioClip safeOpenning;
-    public AudioClip safeError;
-
-    // --- FLASHLIGHT SOUNDS ---
-    [Header("Flashlight Sounds")]
-    public AudioClip flashlightToggleSound;
-    public AudioClip flashlightReloadSound;
-    public AudioClip flashlightGlitchSound;
-
-    // Glitch sesi uzun olduğu için onu kontrol edecek özel kaynak
-    private AudioSource flashlightSource;
 
     private void Awake()
     {
         if (Instance == null) Instance = this;
         else { Destroy(gameObject); return; }
 
-        audioSource = GetComponent<AudioSource>();
-        if (audioSource == null) audioSource = gameObject.AddComponent<AudioSource>();
-
-        earthquakeSource = gameObject.AddComponent<AudioSource>();
-        earthquakeSource.loop = true;
-        earthquakeSource.playOnAwake = false;
-        earthquakeSource.spatialBlend = 0f;
-        earthquakeSource.volume = 1f;
-
-        ambientSource = gameObject.AddComponent<AudioSource>();
-        ambientSource.loop = true;
-        ambientSource.playOnAwake = false;
-        ambientSource.spatialBlend = 0f;
+        // Tüm AudioSource'ları aynı objeye yığıp karıştırmak yerine, 
+        // Manager'ın altına temiz Child (Çocuk) objeler olarak oluşturuyoruz.
+        sfxSource = CreateAudioSource("SFX_Source", false, 1f);
+        ambientSource = CreateAudioSource("Ambient_Source", true, 0f);
+        randomSfxSource = CreateAudioSource("RandomHorror_Source", false, 0f);
+        earthquakeSource = CreateAudioSource("Earthquake_Source", true, 0f);
+        flashlightSource = CreateAudioSource("Flashlight_Source", false, 1f);
+        
         ambientSource.volume = ambientVolume;
-
-        // Flashlight Glitch Kaynağı
-        flashlightSource = gameObject.AddComponent<AudioSource>();
-        flashlightSource.loop = false;
-        flashlightSource.playOnAwake = false;
-        flashlightSource.spatialBlend = 0f;
-
-        // YENİ: Random Horror Kaynağı
-        randomSfxSource = gameObject.AddComponent<AudioSource>();
-        randomSfxSource.loop = false;
-        randomSfxSource.playOnAwake = false;
-        randomSfxSource.spatialBlend = 0f; // 2D Ses (Kafanın içinde gibi)
         randomSfxSource.volume = randomHorrorVolume;
+    }
+
+    private AudioSource CreateAudioSource(string name, bool isLooping, float spatialBlend)
+    {
+        GameObject child = new GameObject(name);
+        child.transform.SetParent(transform);
+        AudioSource source = child.AddComponent<AudioSource>();
+        source.loop = isLooping;
+        source.playOnAwake = false;
+        source.spatialBlend = spatialBlend;
+        return source;
     }
 
     private void Start()
     {
         PlayAmbientMusic();
-        ResetRandomTimer(); // Zamanlayıcıyı başlat
-    }
-
-    // YENİ: Süre sayımı için Update eklendi
-    private void Update()
-    {
+        
         if (randomHorrorClips != null && randomHorrorClips.Length > 0)
         {
-            randomEventTimer -= Time.deltaTime;
-
-            if (randomEventTimer <= 0f)
-            {
-                PlayRandomHorrorSound();
-                ResetRandomTimer();
-            }
+            StartCoroutine(RandomHorrorRoutine());
         }
     }
 
-    // --- RANDOM HORROR MANTIĞI ---
-    private void ResetRandomTimer()
+    // =========================================================
+    // EVRENSEL SFX METOTLARI (Eski spesifik metotların yerini aldı)
+    // =========================================================
+    
+    /// <summary>
+    /// UnityEvent'ler üzerinden (Kasa, Kapı, Fener) çağrılacak evrensel metot.
+    /// Ses klibini doğrudan etkileşimli objenin Inspector'ından yollayın.
+    /// </summary>
+    public void PlaySFX(AudioClip clip)
     {
-        // Belirlenen iki süre arasında rastgele bir zaman seç
-        randomEventTimer = Random.Range(minRandomTime, maxRandomTime);
-    }
-
-    private void PlayRandomHorrorSound()
-    {
-        if (randomHorrorClips.Length == 0) return;
-
-        // Rastgele bir ses seç
-        int index = Random.Range(0, randomHorrorClips.Length);
-        AudioClip clip = randomHorrorClips[index];
-
-        // Sesi çal (volume ayarını dikkate alarak)
-        if (clip != null && randomSfxSource != null)
+        if (clip != null && sfxSource != null)
         {
-            // Eğer o an başka bir korku sesi çalmıyorsa çal
-            if (!randomSfxSource.isPlaying)
+            sfxSource.PlayOneShot(clip);
+        }
+    }
+
+    // =========================================================
+    // RANDOM HORROR MANTIĞI (Update yerine Coroutine kullanıldı)
+    // =========================================================
+    private IEnumerator RandomHorrorRoutine()
+    {
+        while (true)
+        {
+            float waitTime = Random.Range(minRandomTime, maxRandomTime);
+            yield return new WaitForSeconds(waitTime);
+
+            if (randomHorrorClips.Length > 0 && !randomSfxSource.isPlaying)
             {
-                randomSfxSource.PlayOneShot(clip, randomHorrorVolume);
+                int index = Random.Range(0, randomHorrorClips.Length);
+                randomSfxSource.PlayOneShot(randomHorrorClips[index], randomHorrorVolume);
             }
         }
     }
 
-    // --- MÜZİK ---
+    // =========================================================
+    // MÜZİK VE AMBİYANS
+    // =========================================================
     public void PlayAmbientMusic()
     {
         if (ambientClip != null)
         {
             ambientSource.clip = ambientClip;
-            ambientSource.volume = ambientVolume;
             ambientSource.Play();
         }
     }
@@ -155,7 +118,9 @@ public class VoiceManager : MonoBehaviour
     public void StopAmbientMusic() { if (ambientSource.isPlaying) ambientSource.Stop(); }
     public void SetAmbientVolume(float vol) { ambientVolume = vol; ambientSource.volume = ambientVolume; }
 
-    // --- DEPREM ---
+    // =========================================================
+    // DEPREM
+    // =========================================================
     public void PlayEarthquake(float volume = 1f)
     {
         if (earthquakeSound == null) return;
@@ -164,59 +129,39 @@ public class VoiceManager : MonoBehaviour
         if (!earthquakeSource.isPlaying) earthquakeSource.Play();
     }
 
-    public void StopEarthquake() { if (earthquakeSource.isPlaying) earthquakeSource.Stop(); earthquakeSource.volume = 1f; }
+    public void StopEarthquake() { if (earthquakeSource.isPlaying) earthquakeSource.Stop(); }
 
-    // --- ADIM ---
+    // =========================================================
+    // ADIM SESLERİ (Player Movement üzerinden çağrılır)
+    // =========================================================
     public void HandleFootsteps(bool isMoving, bool isGrounded, bool isSneaking)
     {
         if (isSneaking || !isGrounded || !isMoving) { stepTimer = 0f; return; }
+        
         stepTimer -= Time.deltaTime;
-        if (stepTimer <= 0f) { PlayFootstep(); stepTimer = stepInterval; }
-    }
-
-    private void PlayFootstep()
-    {
-        if (footstepSounds != null && footstepSounds.Length > 0)
-            audioSource.PlayOneShot(footstepSounds[Random.Range(0, footstepSounds.Length)]);
-    }
-
-    // --- KAPI / DOLAP / KASA ---
-    public void PlayDoorOpen() { if (doorOpenSound != null) audioSource.PlayOneShot(doorOpenSound); }
-    public void PlayDoorClose() { if (doorCloseSound != null) audioSource.PlayOneShot(doorCloseSound); }
-    public void PlayDrawerOpen() { if (drawerOpenSound != null) audioSource.PlayOneShot(drawerOpenSound); }
-    public void PlayDrawerClose() { if (drawerCloseSound != null) audioSource.PlayOneShot(drawerCloseSound); }
-    public void PlayBigDrawerOpen() { if (bigDrawerOpenSound != null) audioSource.PlayOneShot(bigDrawerOpenSound); }
-    public void PlayBigDrawerClose() { if (bigDrawerCloseSound != null) audioSource.PlayOneShot(bigDrawerCloseSound); }
-    public void PlayButtonPressed() { if (safeButtonPress != null) audioSource.PlayOneShot(safeButtonPress); }
-    public void SafeErrorSound() { if (safeError != null) audioSource.PlayOneShot(safeError); }
-    public void safeOpenSound() { if (safeOpenning != null) audioSource.PlayOneShot(safeOpenning); }
-
-    // --- FLASHLIGHT FONKSİYONLARI ---
-    public void PlayFlashlightToggle()
-    {
-        if (flashlightToggleSound != null) audioSource.PlayOneShot(flashlightToggleSound);
-    }
-
-    public void PlayFlashlightReload()
-    {
-        if (flashlightReloadSound != null) audioSource.PlayOneShot(flashlightReloadSound);
-    }
-
-    // Glitch Sesi Mantığı
-    public void PlayFlashlightGlitch()
-    {
-        if (flashlightGlitchSound != null)
-        {
-            if (!flashlightSource.isPlaying)
+        if (stepTimer <= 0f) 
+        { 
+            if (footstepSounds != null && footstepSounds.Length > 0)
             {
-                flashlightSource.clip = flashlightGlitchSound;
-                flashlightSource.volume = 0.5f;
-                flashlightSource.Play();
+                sfxSource.PlayOneShot(footstepSounds[Random.Range(0, footstepSounds.Length)]);
             }
+            stepTimer = stepInterval; 
         }
     }
 
-    // Sesi anında kesmek için fonksiyon
+    // =========================================================
+    // FLASHLIGHT GLITCH (Uzun sürdüğü için özel kaynağı var)
+    // =========================================================
+    public void PlayFlashlightGlitch(AudioClip glitchClip)
+    {
+        if (glitchClip != null && !flashlightSource.isPlaying)
+        {
+            flashlightSource.clip = glitchClip;
+            flashlightSource.volume = 0.5f;
+            flashlightSource.Play();
+        }
+    }
+
     public void StopFlashlightGlitch()
     {
         if (flashlightSource.isPlaying)
